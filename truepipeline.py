@@ -1,3 +1,6 @@
+import multiprocessing as mp
+from collections import namedtuple
+
 Task = namedtuple("Task", ["done", "data"])
 
 
