@@ -22,6 +22,7 @@ class SmartQueue:
 
         self.batch_size = batch_size
         self.tasks = []
+        logger.info ("Queue({}) batch size {}".format(ide, batch_size))
 
     def put(self, obj: Task):
         if obj.done:
@@ -42,15 +43,18 @@ class SmartQueue:
                     if self._debug:
                         logger.debug("Queue({}) Finished".format(self.ide))
         else:
-            # if self._debug:
-            #     logger.debug ("Queue({}) put {} ".format(self.ide, obj)[:50])
+            if self._debug:
+                logger.debug ("Queue({}) put {} ".format(self.ide, obj)[:50])
 
             self.tasks.extend(obj.data)
-            while len(self.tasks)>self.batch_size:
-                self._q.put(Task(False, self.tasks[:self.batch_size]))
-                self.tasks = self.tasks[self.batch_size:]
+            if len(self.tasks) >= self.batch_size:
+                for i in range (0, len(self.tasks), self.batch_size):
+                    self._q.put(Task(False, self.tasks[i:i+self.batch_size]))
 
-            # self._q.put(obj)
+                remaining = len(self.tasks) % self.batch_size
+                self.tasks = self.tasks[len(self.tasks)-remaining:]
+
+
 
     def get(self):
 
@@ -77,6 +81,9 @@ class Pipeline:
             batches = [1]*(len(list_of_functions)+1)
         self.batches = batches
 
+        assert len(self.functions) == len(self.workers), "number of functions does not match number of workers"
+        assert len(self.functions) == len(self.batches)-1, "number of functions does not match number of batches-1"
+
     def parallel_process(self, func, in_q, out_q, stage):
 
         logger.debug("Process(stage: {}, pid: {}) started".format(stage, os.getpid()))
@@ -84,8 +91,13 @@ class Pipeline:
         x = in_q.get()
 
         total_time = 0
+        total_batches = 0
+        total_elements = 0
 
         while not x.done:
+
+            total_batches += 1
+            total_elements += len(x.data)
 
             start = timer()
             for y in func (x.data):
@@ -101,8 +113,10 @@ class Pipeline:
         logger.debug("Process(stage: {}, pid: {}) finished, propagating EOS...".format(stage, os.getpid()))
         out_q.put(Task(True, None))
 
-        logger.debug("Process(stage: {}, pid: {}) total time {}".format(stage, os.getpid(), total_time))
-        logger.debug("Process(stage: {}, pid: {}) exit.".format(stage, os.getpid()))
+        logger.debug("Process(stage: {}, pid: {}) total time    {}".format(stage, os.getpid(), total_time))
+        logger.debug("Process(stage: {}, pid: {}) total elments {}".format(stage, os.getpid(), total_elements))
+        logger.debug("Process(stage: {}, pid: {}) total batches {}".format(stage, os.getpid(), total_batches))
+        # logger.debug("Process(stage: {}, pid: {}) exit.".format(stage, os.getpid()))
 
     def run(self, iterable_input):
 
@@ -113,10 +127,10 @@ class Pipeline:
             maxsize = 4 * nworker_out
             if ide==0:
                 maxsize = 0
-            queues.append(SmartQueue(nworker_in, nworker_out, ide=ide, maxsize=maxsize, batch_size=batch_size, debug=True))
+            queues.append(SmartQueue(nworker_in, nworker_out, ide=ide, maxsize=maxsize, batch_size=batch_size, debug=False))
             ide += 1
             nworker_in = nworker_out
-        queues.append(SmartQueue(nworker_in, 1, ide=ide, maxsize=2*self.batches[-1], batch_size=self.batches[-1], debug=True))
+        queues.append(SmartQueue(nworker_in, 1, ide=ide, maxsize=2*self.batches[-1], batch_size=self.batches[-1], debug=False))
 
         pool_list = []
         i = 0
@@ -132,7 +146,6 @@ class Pipeline:
 
         y = queues[-1].get()
         while not y.done:
-            logger.debug ("Pipeline yielding {}".format(y.data)[:50])
             yield y.data
             y = queues[-1].get()
 
