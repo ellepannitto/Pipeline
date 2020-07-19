@@ -16,16 +16,11 @@ def grouper (iterable, n):
 
 
 class Farm:
-    """
-    This class is used for multiprocessing.
-    It takes as parameter n functions (and the number of workers to assign to each function)
-      and creates n+1 queues, so that each function works in parallel by taking the input data
-      from one queue and putting the output in the next.
-    """
 
-    def __init__(self, list_of_functions, list_of_workers, batches=None):
+    def __init__(self, list_of_functions, list_of_workers, batches=None, show_progress_bar=True):
         self.functions = list_of_functions
         self.workers = list_of_workers
+        self.show_progress_bar = show_progress_bar
 
         if batches is None:
             batches = [1]*(len(list_of_functions)+1)
@@ -41,5 +36,6 @@ class Farm:
         return x
 
     def run(self, iterable_input):
-        for x in tqdm.tqdm(grouper(iterable_input, self.batches[0]), desc="farm input"):
-            yield self.parallel_process(x)
+        iterable = tqdm.tqdm(grouper(iterable_input, self.batches[0]), desc="farm input", disable=not self.show_progress_bar)
+        for y in map (self.parallel_process, iterable):
+            yield y

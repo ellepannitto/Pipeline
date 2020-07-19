@@ -60,7 +60,7 @@ class TestPipeline(unittest.TestCase):
 class TestFarm(unittest.TestCase):
 
     def test_simple(self):
-        farm = Farm.Farm([double, increment, double], [1, 1, 1])
+        farm = Farm.Farm([double, increment, double], [1, 1, 1], show_progress_bar = False)
 
         for y, t in zip (farm.run(range(12)), [2, 6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46]):
             self.assertEqual(y[0], t, "pipeline does not work")
@@ -68,13 +68,13 @@ class TestFarm(unittest.TestCase):
     def test_state(self):
 
         state_class = State()
-        farm = Farm.Farm([double, increment, double, state_class.fun], [1, 1, 1, 1])
+        farm = Farm.Farm([double, increment, double, state_class.fun], [1, 1, 1, 1], show_progress_bar = False)
 
         for y, t in zip (farm.run(range(12)), [2, 8, 18, 32, 50, 72, 98, 128, 162, 200, 242, 288]):
             self.assertEqual(y[0], t, "pipeline does not work")
 
     def test_batch_size(self):
-        farm = Farm.Farm([double, increment, double], [1, 1, 1], [1,3,2,1])
+        farm = Farm.Farm([double, increment, double], [1, 1, 1], [1,3,2,1], show_progress_bar = False)
 
         for y, t in zip (farm.run(range(12)), [2, 6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46]):
             self.assertEqual(y[0], t, "pipeline does not work")
