@@ -1,2 +1,6 @@
 # Project exclude paths
 /venv/
+
+# python cache and compiled files
+*.py[cod]
+__pycache__/*
