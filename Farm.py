@@ -1,5 +1,8 @@
 import logging
 import tqdm
+import multiprocessing as mp
+
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -17,18 +20,16 @@ def grouper (iterable, n):
 
 class Farm:
 
-    def __init__(self, list_of_functions, list_of_workers, batches=None, show_progress_bar=True):
+    def __init__(self, list_of_functions, nworkers, batchsize=1, show_progress_bar=True):
         self.functions = list_of_functions
-        self.workers = list_of_workers
+        self.nworkers = nworkers
         self.show_progress_bar = show_progress_bar
+        self.batchsize = batchsize
 
-        if batches is None:
-            batches = [1]*(len(list_of_functions)+1)
-        self.batches = batches
+        assert batchsize>0, "batchsize must be greater than zero"
+        assert nworkers>0, "nworkers must be greater than zero"
 
-        assert len(self.functions) == len(self.workers), "number of functions does not match number of workers"
-        assert len(self.functions) == len(self.batches)-1, "number of functions does not match number of batches-1"
-
+        
     def parallel_process(self, x):
 
         for func in self.functions:
@@ -36,6 +37,15 @@ class Farm:
         return x
 
     def run(self, iterable_input):
-        iterable = tqdm.tqdm(grouper(iterable_input, self.batches[0]), desc="farm input", disable=not self.show_progress_bar)
-        for y in map (self.parallel_process, iterable):
-            yield y
+
+        iterable = grouper(tqdm.tqdm(iterable_input, desc="farm input", disable=not self.show_progress_bar), self.batchsize)
+        
+        if self.nworkers == 1:
+            for y in map (self.parallel_process, iterable):
+                yield y
+        else:
+
+            with mp.Pool (self.nworkers) as pool:
+
+                for y in pool.imap (self.parallel_process, iterable):
+                    yield y
