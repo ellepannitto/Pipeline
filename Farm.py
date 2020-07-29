@@ -42,6 +42,21 @@ class Farm:
             x = sum(func(x), [])
         return x
 
+    def get_result_and_delete_handler (self, results_handlers: List[AsyncResult]):
+        i=0
+        is_result_available = False
+        y = None
+        while not is_result_available:
+            handle = results_handlers[i]
+            try:
+                y = handle.get ( self.timeout )
+                del results_handlers[i]
+                is_result_available = True
+
+            except TimeoutError:
+                i = (i+1) % len(results_handlers)
+        return y
+
     def map(self, iterable_input):
 
         iterable = grouper(tqdm.tqdm(iterable_input, desc="farm input", disable=not self.show_progress_bar), self.batchsize)
@@ -61,33 +76,14 @@ class Farm:
                 
                 # iterate the remaining batches, get one batch at a time and submit it when a previous task is completed
                 for task in iterable:
-                    i=0
-                    do_next_task = False
-                    while not do_next_task:
-                        handle = results_handlers[i]
-                        try:
-                            y = handle.get ( self.timeout )
-                            del results_handlers[i]
-                            h = pool.apply_async (self.parallel_process, [task])
-                            results_handlers.append (h)
-                            yield y
-                            do_next_task = True
+                    y = self.get_result_and_delete_handler (results_handlers)
+                    h = pool.apply_async (self.parallel_process, [task])
+                    results_handlers.append (h)
+                    yield y
 
-                        except TimeoutError:
-                            i = (i+1) % len(results_handlers)
-
-                i = 0
-                # wait until all the tasks are completed
                 while len(results_handlers):
-                    handle = results_handlers[i]
-                    try:
-                        y = handle.get ( self.timeout )
-                        del results_handlers[i]
-                        yield y
-                        i = 0
-
-                    except TimeoutError:
-                        i = (i+1) % len(results_handlers)
+                    y = self.get_result_and_delete_handler (results_handlers)
+                    yield y
 
     def map_reduce (self, iterable_input, reduce_fn, reduce_batch):
 
@@ -115,38 +111,23 @@ class Farm:
                 
                 # iterate the remaining batches, get one batch at a time and submit it when a previous task is completed
                 for task in iterable:
-                    i=0
-                    do_next_task = False
-                    while not do_next_task:
-                        handle = results_handlers[i]
-                        try:
-                            y = handle.get ( self.timeout )
-                            del results_handlers[i]
-                            h = pool.apply_async (self.parallel_process, [task])
-                            results_handlers.append (h)
-                            cached_results.extend (y)
-                            do_next_task = True
-
-                        except TimeoutError:
-                            i = (i+1) % len(results_handlers)
+                    
+                    y = self.get_result_and_delete_handler (results_handlers)
+                    cached_results.extend (y)
+                    h = pool.apply_async (self.parallel_process, [task])
+                    results_handlers.append (h)
                     
                     if len(cached_results) >= reduce_batch:
                         h = pool.apply_async (partial_reduce, [cached_results])
                         results_handlers.append (h)
-                        cached_results = []                      
+                        y = self.get_result_and_delete_handler (results_handlers)
+                        cached_results = y
 
-                i = 0
+
                 # wait until all the tasks are completed
                 while len(results_handlers):
-                    handle = results_handlers[i]
-                    try:
-                        y = handle.get ( self.timeout )
-                        del results_handlers[i]
-                        cached_results.extend (y)
-                        i = 0
-
-                    except TimeoutError:
-                        i = (i+1) % len(results_handlers)
+                    y = self.get_result_and_delete_handler (results_handlers)
+                    cached_results.extend (y)
                 
                 return reduce_fn (cached_results)
 
