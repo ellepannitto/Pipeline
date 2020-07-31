@@ -80,7 +80,7 @@ class Farm:
             x = sum(func(x), [])
         return x
 
-    def get_result_and_delete_handler (self, results_handlers: List[AsyncResult]):
+    def get_result_and_delete_handler (self, results_handlers) -> List:
         i=0
         is_result_available = False
         y = None
@@ -106,7 +106,8 @@ class Farm:
         '''
 
         iterable = grouper(tqdm.tqdm(iterable_input, desc="farm input", disable=not self.show_progress_bar), self.batchsize)
-        
+
+
         if self.nworkers == 1:
             for y in map (self.parallel_process, iterable):
                 yield y
@@ -131,6 +132,7 @@ class Farm:
                     y = self.get_result_and_delete_handler (results_handlers)
                     yield y
 
+    # TODO: show submitted task and cached results in progress bar
     def map_reduce (self, iterable_input, reduce_fn, reduce_batch):
         '''
          applies the functions composition to each element of an input iterable, then reduces the results using another function.
@@ -144,14 +146,19 @@ class Farm:
         iterable = grouper(tqdm.tqdm(iterable_input, desc="farm input", disable=not self.show_progress_bar), self.batchsize)
         
         if self.nworkers == 1:
+            logger.info ("map-reduce: sequential version")
             first = True
             out = None
             for y in grouper (map (self.parallel_process, iterable), reduce_batch):
                 y = sum (y, [])
+                logger.debug("map-reduce calling reduce_fn")
                 out = reduce_fn ( y + ([] if first else [out]) )
                 first = False
             return out
         else:
+
+            logger.info ("map-reduce: parallel version ({} workers)".format(self.nworkers))
+            logger.info ("map-reduce: reduce batch: {}".format(reduce_batch))
 
             partial_reduce = functools.partial (wrap_function_result_inside_a_list, reduce_fn)
             cached_results = []
@@ -162,7 +169,9 @@ class Farm:
                 for _,task in zip(range (self.nworkers), iterable):
                     handle = pool.apply_async ( self.parallel_process, [task] )
                     results_handlers.append (handle)
-                
+
+                logger.debug("map-reduce: submitted first {} tasks to the pool".format(self.nworkers))
+
                 # iterate the remaining batches, get one batch at a time and submit it when a previous task is completed
                 for task in iterable:
                     
@@ -170,20 +179,30 @@ class Farm:
                     cached_results.extend (y)
                     h = pool.apply_async (self.parallel_process, [task])
                     results_handlers.append (h)
-                    
+                    logger.debug("map-reduce collected result: number of cached partial results {}, number of submitted tasks: {}".format(len(cached_results), len(results_handlers)))
+
                     if len(cached_results) >= reduce_batch:
                         h = pool.apply_async (partial_reduce, [cached_results])
                         results_handlers.append (h)
+                        logger.debug("map-reduce: submitted partial_reduce, number of submitted tasks {}".format(len(results_handlers)))
                         y = self.get_result_and_delete_handler (results_handlers)
                         cached_results = y
+                        logger.debug("map-reduce collected result: number of cached partial results {}, number of submitted tasks: {}".format(len(cached_results), len(results_handlers)))
 
-
+                logger.debug("map-reduce: submitted all the input tasks")
                 # wait until all the tasks are completed
                 while len(results_handlers):
                     y = self.get_result_and_delete_handler (results_handlers)
                     cached_results.extend (y)
-                
-                return reduce_fn (cached_results)
+                    logger.debug("map-reduce collected result: number of cached partial results {}, number of submitted tasks: {}".format(len(cached_results), len(results_handlers)))
+
+                if len(cached_results) > 1:
+                    logger.debug("map-reduce: finished collecting all tasks, calling last reduce_fn to reduce the last {} cached results".format(len(cached_results)))
+                    out = reduce_fn (cached_results)
+                else:
+                    logger.debug("map-reduce: finished collecting all tasks but last task was a partial_reduce. No need to call reduce_fn again")
+                    out = cached_results[0]
+                return out
 
 
 
