@@ -162,7 +162,7 @@ class Farm:
             logger.info ("map-reduce: reduce batch: {}".format(reduce_batch))
 
             partial_reduce = functools.partial (wrap_reduce_function, reduce_fn)
-            cached_results = []
+            cached_results_tree = [[]]
             results_handlers: List[AsyncResult] = []
             with mp.Pool (self.nworkers) as pool:
 
@@ -177,33 +177,32 @@ class Farm:
                 for task in iterable:
                     
                     y = self.get_result_and_delete_handler (results_handlers)
-                    cached_results.extend (y.data)
+                    level = y.level
+
+                    if len(cached_results_tree) == level: cached_results_tree.append([])
+                    cached_results_tree[level].extend (y.data)
+
                     h = pool.apply_async (self.parallel_process, [task])
                     results_handlers.append (h)
-                    logger.debug("map-reduce collected result: number of cached partial results {}, number of submitted tasks: {}".format(len(cached_results), len(results_handlers)))
+                    logger.debug("map-reduce collected {} results for level {}, cached results (by level): {}".format(len(y.data), level, map(lambda l: len(l), cached_results_tree)))
 
-                    if len(cached_results) >= reduce_batch:
-                        h = pool.apply_async (partial_reduce, [cached_results])
+                    while len(cached_results_tree[level]) >= reduce_batch:
+                        h = pool.apply_async (partial_reduce, [cached_results_tree[level], level+1])
+                        cached_results_tree[level] = []
                         results_handlers.append (h)
-                        logger.debug("map-reduce: submitted partial_reduce, number of submitted tasks {}".format(len(results_handlers)))
+                        logger.debug("map-reduce: submitted partial_reduce for level {}".format(level))
                         y = self.get_result_and_delete_handler (results_handlers)
-                        cached_results = y.data
-                        logger.debug("map-reduce collected result: number of cached partial results {}, number of submitted tasks: {}".format(len(cached_results), len(results_handlers)))
+                        level = y.level
+                        if len(cached_results_tree) == level: cached_results_tree.append([])
+                        cached_results_tree[level].extend(y.data)
+                        logger.debug("map-reduce collected {} results for level {}, cached results (by level): {}".format(len(y.data), level, map(lambda l: len(l), cached_results_tree)))
 
                 logger.debug("map-reduce: submitted all the input tasks")
                 # wait until all the tasks are completed
                 while len(results_handlers):
                     y = self.get_result_and_delete_handler (results_handlers)
-                    cached_results.extend (y.data)
-                    logger.debug("map-reduce collected result: number of cached partial results {}, number of submitted tasks: {}".format(len(cached_results), len(results_handlers)))
+                    cached_results_tree[0].extend (y.data)
+                    logger.debug("map-reduce collected {} results (put in level 0 since it does not matter), cached results (by level): {}".format(len(y.data), map(lambda l: len(l), cached_results_tree)))
 
-                if len(cached_results) > 1:
-                    logger.info("map-reduce: finished collecting all tasks, calling last reduce_fn to reduce the last {} cached results".format(len(cached_results)))
-                    out = reduce_fn (cached_results)
-                else:
-                    logger.info("map-reduce: finished collecting all tasks but last task was a partial_reduce. No need to call reduce_fn again")
-                    out = cached_results[0]
-                return out
-
-
-
+                logger.debug("map-reduce: finished collecting all tasks, calling last reduce_fn to reduce the last {} cached results in all the levels of the tree".format(len(sum (cached_results_tree, []))))
+                return reduce_fn (sum (cached_results_tree, []))
