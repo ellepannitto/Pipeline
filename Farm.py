@@ -146,6 +146,9 @@ class Farm:
          :param: reduce_batch number of map results to compute before each call to reduce_fn
         '''
 
+        if logger.isEnabledFor(logging.DEBUG):
+            self.show_progress_bar = False
+
         iterable = grouper(tqdm.tqdm(iterable_input, desc="farm input", disable=not self.show_progress_bar), self.batchsize)
         
         if self.nworkers == 1:
@@ -184,7 +187,7 @@ class Farm:
 
                     h = pool.apply_async (self.parallel_process, [task])
                     results_handlers.append (h)
-                    logger.debug("map-reduce collected {} results for level {}, cached results (by level): {}".format(len(y.data), level, map(lambda l: len(l), cached_results_tree)))
+                    logger.debug("map-reduce collected {} results for level {}, cached results (by level): {}".format(len(y.data), level, list(map(lambda l: len(l), cached_results_tree))))
 
                     while len(cached_results_tree[level]) >= reduce_batch:
                         h = pool.apply_async (partial_reduce, [cached_results_tree[level], level+1])
@@ -195,14 +198,14 @@ class Farm:
                         level = y.level
                         if len(cached_results_tree) == level: cached_results_tree.append([])
                         cached_results_tree[level].extend(y.data)
-                        logger.debug("map-reduce collected {} results for level {}, cached results (by level): {}".format(len(y.data), level, map(lambda l: len(l), cached_results_tree)))
+                        logger.debug("map-reduce collected {} results for level {}, cached results (by level): {}".format(len(y.data), level, list(map(lambda l: len(l), cached_results_tree))))
 
                 logger.debug("map-reduce: submitted all the input tasks")
                 # wait until all the tasks are completed
                 while len(results_handlers):
                     y = self.get_result_and_delete_handler (results_handlers)
                     cached_results_tree[0].extend (y.data)
-                    logger.debug("map-reduce collected {} results (put in level 0 since it does not matter), cached results (by level): {}".format(len(y.data), map(lambda l: len(l), cached_results_tree)))
+                    logger.debug("map-reduce collected {} results (put in level 0 since it does not matter), cached results (by level): {}".format(len(y.data), list(map(lambda l: len(l), cached_results_tree))))
 
                 logger.debug("map-reduce: finished collecting all tasks, calling last reduce_fn to reduce the last {} cached results in all the levels of the tree".format(len(sum (cached_results_tree, []))))
                 return reduce_fn (sum (cached_results_tree, []))
